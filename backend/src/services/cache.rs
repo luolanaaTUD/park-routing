@@ -11,7 +11,8 @@ pub fn cache_key(req: &RouteRequest, config: &Config) -> String {
     let snap = |v: f64| (v * factor).round() / factor;
 
     format!(
-        "nav:path:{}:{}:{}:{}:{}",
+        "nav:path:{}:{}:{}:{}:{}:{}",
+        req.crs,
         req.travel_mode,
         snap(req.start.lon),
         snap(req.start.lat),

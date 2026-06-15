@@ -17,7 +17,9 @@ Client → Axum API → Redis (cache hit)
 docker compose up -d db redis
 ```
 
-On first run, `db/init/*.sql` (run in order `01`–`05`) creates extensions, schema, sample network, topology, and `route_between_points()`. This folder is the schema source of truth for new environments.
+On first run, `db/init/*.sql` (run in order `01`–`06`) creates extensions, schema, sample network, topology, GCJ-02 conversion functions, and `route_between_points()`. This folder is the schema source of truth for new environments.
+
+**Existing database volumes** do not re-run init scripts. After pulling CRS changes, reset with `docker compose down -v && docker compose up -d db redis`, or apply `db/init/05-crs-gcj02.sql` and `db/init/06-routing-function.sql` manually.
 
 To reset the database during development:
 
@@ -53,11 +55,18 @@ docker compose exec db psql -U postgres -d park_routing -c "SELECT pgr_version()
 docker compose exec db psql -U postgres -d park_routing -c "SELECT COUNT(*) FROM park_ways;"
 ```
 
-Test routing in SQL:
+Test routing in SQL (WGS84):
 
 ```bash
 docker compose exec db psql -U postgres -d park_routing -c \
-  "SELECT distance_m, duration_min FROM route_between_points(116.388, 39.988, 116.392, 39.992, 'walk');"
+  "SELECT distance_m, duration_min FROM route_between_points(116.388, 39.988, 116.392, 39.992, 'walk', 'wgs84');"
+```
+
+Test GCJ-02 conversion:
+
+```bash
+docker compose exec db psql -U postgres -d park_routing -c \
+  "SELECT * FROM wgs84_lonlat_to_gcj02(116.397128, 39.916527);"
 ```
 
 Health check:
@@ -74,7 +83,8 @@ curl -s -X POST http://localhost:8080/api/v1/route \
   -d '{
     "start": { "lon": 116.388, "lat": 39.988 },
     "end":   { "lon": 116.392, "lat": 39.992 },
-    "travel_mode": "walk"
+    "travel_mode": "walk",
+    "crs": "wgs84"
   }' | jq .
 ```
 
@@ -90,11 +100,14 @@ Repeat the same request — `"cached": true` on the second call.
 {
   "start": { "lon": 116.388, "lat": 39.988 },
   "end": { "lon": 116.392, "lat": 39.992 },
-  "travel_mode": "walk"
+  "travel_mode": "walk",
+  "crs": "gcj02"
 }
 ```
 
 `travel_mode`: `walk` | `cart`
+
+`crs` (required): `gcj02` | `wgs84` — coordinate system for `start`, `end`, and response `geometry`. Use `gcj02` for 高德 map overlays; use `wgs84` for raw GPS. Internal routing and storage always use WGS84 (EPSG:4326).
 
 **Response**
 
@@ -129,7 +142,7 @@ Park paths are modeled as an **undirected graph**: each edge has a single `cost`
 
 ```
 ├── docker-compose.yml
-├── db/init/           # PostgreSQL schema + seed (01–05, lexicographic order)
+├── db/init/           # PostgreSQL schema + seed (01–06, lexicographic order)
 ├── backend/           # Rust Axum API
 └── PRDs/prd.md        # Product requirements
 ```

@@ -13,13 +13,16 @@ pub struct Coordinate {
 #[schema(example = json!({
     "start": { "lon": 116.388, "lat": 39.988 },
     "end": { "lon": 116.392, "lat": 39.992 },
-    "travel_mode": "walk"
+    "travel_mode": "walk",
+    "crs": "gcj02"
 }))]
 pub struct RouteRequest {
     pub start: Coordinate,
     pub end: Coordinate,
     #[serde(default = "default_travel_mode")]
     pub travel_mode: String,
+    /// Coordinate reference system for start, end, and response geometry: `gcj02` or `wgs84`.
+    pub crs: String,
 }
 
 fn default_travel_mode() -> String {
@@ -44,6 +47,9 @@ impl RouteRequest {
     pub fn validate(&self) -> Result<(), String> {
         if !matches!(self.travel_mode.as_str(), "walk" | "cart") {
             return Err("travel_mode must be 'walk' or 'cart'".into());
+        }
+        if !matches!(self.crs.as_str(), "gcj02" | "wgs84") {
+            return Err("crs must be 'gcj02' or 'wgs84'".into());
         }
         if !(-180.0..=180.0).contains(&self.start.lon) || !(-90.0..=90.0).contains(&self.start.lat) {
             return Err("start coordinates out of range".into());

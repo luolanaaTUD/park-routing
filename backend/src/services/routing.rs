@@ -18,7 +18,7 @@ pub async fn compute_route(pool: &PgPool, req: &RouteRequest) -> AppResult<Route
             geojson,
             distance_m,
             duration_min
-        FROM route_between_points($1, $2, $3, $4, $5)
+        FROM route_between_points($1, $2, $3, $4, $5, $6)
         "#,
     )
     .bind(req.start.lon)
@@ -26,6 +26,7 @@ pub async fn compute_route(pool: &PgPool, req: &RouteRequest) -> AppResult<Route
     .bind(req.end.lon)
     .bind(req.end.lat)
     .bind(&req.travel_mode)
+    .bind(&req.crs)
     .fetch_one(pool)
     .await?;
 
