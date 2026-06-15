@@ -43,6 +43,69 @@ pub struct RouteResponse {
     pub cached: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[schema(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ActionType {
+    Start,
+    Straight,
+    Left,
+    Right,
+    Destination,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct PathPoint {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct NavigationStep {
+    pub step_index: i32,
+    pub lat: f64,
+    pub lon: f64,
+    pub action_type: ActionType,
+    pub guide_text: String,
+    pub distance_to_next_m: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+#[schema(example = json!({
+    "distance_m": 350.0,
+    "duration_sec": 300,
+    "path_polyline": [
+        { "lat": 39.988, "lon": 116.388 },
+        { "lat": 39.992, "lon": 116.392 }
+    ],
+    "navigation_steps": [
+        {
+            "step_index": 0,
+            "lat": 39.988,
+            "lon": 116.388,
+            "action_type": "START",
+            "guide_text": "沿当前道路直行",
+            "distance_to_next_m": 350
+        },
+        {
+            "step_index": 1,
+            "lat": 39.992,
+            "lon": 116.392,
+            "action_type": "DESTINATION",
+            "guide_text": "到达目的地",
+            "distance_to_next_m": 0
+        }
+    ],
+    "cached": false
+}))]
+pub struct NavigateResponse {
+    pub distance_m: f64,
+    pub duration_sec: i32,
+    pub path_polyline: Vec<PathPoint>,
+    pub navigation_steps: Vec<NavigationStep>,
+    pub cached: bool,
+}
+
 impl RouteRequest {
     pub fn validate(&self) -> Result<(), String> {
         if !matches!(self.travel_mode.as_str(), "walk" | "cart") {

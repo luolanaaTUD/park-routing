@@ -1,7 +1,9 @@
 use utoipa::OpenApi;
 
 use crate::error::ErrorResponse;
-use crate::models::route::{RouteRequest, RouteResponse};
+use crate::models::route::{
+    ActionType, NavigateResponse, NavigationStep, PathPoint, RouteRequest, RouteResponse,
+};
 use crate::routes::{health, navigate};
 
 #[derive(OpenApi)]
@@ -14,10 +16,15 @@ use crate::routes::{health, navigate};
     paths(
         health::health,
         navigate::route_handler,
+        navigate::navigate_handler,
     ),
     components(schemas(
         RouteRequest,
         RouteResponse,
+        NavigateResponse,
+        NavigationStep,
+        PathPoint,
+        ActionType,
         ErrorResponse,
         health::HealthResponse,
     )),

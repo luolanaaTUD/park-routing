@@ -17,9 +17,9 @@ Client → Axum API → Redis (cache hit)
 docker compose up -d db redis
 ```
 
-On first run, `db/init/*.sql` (run in order `01`–`06`) creates extensions, schema, sample network, topology, GCJ-02 conversion functions, and `route_between_points()`. This folder is the schema source of truth for new environments.
+On first run, `db/init/*.sql` (run in order `01`–`07`) creates extensions, schema, sample network, topology, GCJ-02 conversion functions, `route_between_points()`, and `navigate_between_points()`. This folder is the schema source of truth for new environments.
 
-**Existing database volumes** do not re-run init scripts. After pulling CRS changes, reset with `docker compose down -v && docker compose up -d db redis`, or apply `db/init/05-crs-gcj02.sql` and `db/init/06-routing-function.sql` manually.
+**Existing database volumes** do not re-run init scripts. After pulling CRS changes, reset with `docker compose down -v && docker compose up -d db redis`, or apply `db/init/05-crs-gcj02.sql`, `db/init/06-routing-function.sql`, and `db/init/07-navigate-function.sql` manually.
 
 To reset the database during development:
 
@@ -53,6 +53,13 @@ Verify database extensions:
 ```bash
 docker compose exec db psql -U postgres -d park_routing -c "SELECT pgr_version();"
 docker compose exec db psql -U postgres -d park_routing -c "SELECT COUNT(*) FROM park_ways;"
+```
+
+Test navigation in SQL (WGS84):
+
+```bash
+docker compose exec db psql -U postgres -d park_routing -c \
+  "SELECT distance_m, duration_sec, jsonb_array_length(path_polyline), jsonb_array_length(navigation_steps) FROM navigate_between_points(116.388, 39.988, 116.392, 39.990, 'walk', 'wgs84');"
 ```
 
 Test routing in SQL (WGS84):
@@ -90,6 +97,21 @@ curl -s -X POST http://localhost:8080/api/v1/route \
 
 Repeat the same request — `"cached": true` on the second call.
 
+Navigate API (turn-by-turn steps + dense polyline):
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/navigate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start": { "lon": 116.388, "lat": 39.988 },
+    "end":   { "lon": 116.392, "lat": 39.990 },
+    "travel_mode": "walk",
+    "crs": "wgs84"
+  }' | jq .
+```
+
+Repeat the same request — `"cached": true` on the second call.
+
 ## API
 
 ### `POST /api/v1/route`
@@ -120,6 +142,52 @@ Repeat the same request — `"cached": true` on the second call.
 }
 ```
 
+### `POST /api/v1/navigate`
+
+End-user AR navigation: same request body as `/api/v1/route`, but returns a dense `path_polyline` and turn-by-turn `navigation_steps` instead of GeoJSON.
+
+**Response**
+
+```json
+{
+  "distance_m": 563.7,
+  "duration_sec": 403,
+  "path_polyline": [
+    { "lat": 39.988, "lon": 116.388 },
+    { "lat": 39.99, "lon": 116.39 }
+  ],
+  "navigation_steps": [
+    {
+      "step_index": 0,
+      "lat": 39.988,
+      "lon": 116.388,
+      "action_type": "START",
+      "guide_text": "沿S-C West直行",
+      "distance_to_next_m": 222
+    },
+    {
+      "step_index": 1,
+      "lat": 39.99,
+      "lon": 116.388,
+      "action_type": "RIGHT",
+      "guide_text": "在Central Avenue右转",
+      "distance_to_next_m": 342
+    },
+    {
+      "step_index": 2,
+      "lat": 39.99,
+      "lon": 116.392,
+      "action_type": "DESTINATION",
+      "guide_text": "到达目的地",
+      "distance_to_next_m": 0
+    }
+  ],
+  "cached": false
+}
+```
+
+`action_type`: `START` | `STRAIGHT` | `LEFT` | `RIGHT` | `DESTINATION`
+
 ### `GET /health` — Postgres + Redis connectivity
 
 ## Configuration
@@ -142,7 +210,7 @@ Park paths are modeled as an **undirected graph**: each edge has a single `cost`
 
 ```
 ├── docker-compose.yml
-├── db/init/           # PostgreSQL schema + seed (01–06, lexicographic order)
+├── db/init/           # PostgreSQL schema + seed (01–07, lexicographic order)
 ├── backend/           # Rust Axum API
 └── PRDs/prd.md        # Product requirements
 ```
