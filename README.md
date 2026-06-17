@@ -17,9 +17,16 @@ Client → Axum API → Redis (cache hit)
 docker compose up -d db redis
 ```
 
-On first run, `db/init/*.sql` (run in order `01`–`07`) creates extensions, schema, sample network, topology, GCJ-02 conversion functions, `route_between_points()`, and `navigate_between_points()`. This folder is the schema source of truth for new environments.
+On first run, `db/init/*.sql` (run in order `01`–`07`) creates extensions, schema, park network seed (348 routes from `data/park-routes.geojson`), topology, GCJ-02 conversion functions, `route_between_points()`, and `navigate_between_points()`. This folder is the schema source of truth for new environments.
 
-**Existing database volumes** do not re-run init scripts. After pulling CRS changes, reset with `docker compose down -v && docker compose up -d db redis`, or apply `db/init/05-crs-gcj02.sql`, `db/init/06-routing-function.sql`, and `db/init/07-navigate-function.sql` manually.
+**Existing database volumes** do not re-run init scripts. After pulling network or schema changes, reset with `docker compose down -v && docker compose up -d db redis`, reload the network with `./scripts/reload_park_network.sh`, or apply individual SQL files manually.
+
+To regenerate the seed after editing `data/park-routes.geojson`:
+
+```bash
+python3 scripts/generate_park_routes_seed.py
+./scripts/reload_park_network.sh   # if the database already exists
+```
 
 To reset the database during development:
 
@@ -48,6 +55,14 @@ docker compose up -d --build
 
 ## Smoke tests
 
+Run the full suite (database + SQL routing + HTTP API):
+
+```bash
+./scripts/smoke_test.sh
+```
+
+Requires `db` and `redis` running; for HTTP checks, start the API (`cargo run` or `docker compose up api`).
+
 Verify database extensions:
 
 ```bash
@@ -55,18 +70,18 @@ docker compose exec db psql -U postgres -d park_routing -c "SELECT pgr_version()
 docker compose exec db psql -U postgres -d park_routing -c "SELECT COUNT(*) FROM park_ways;"
 ```
 
-Test navigation in SQL (WGS84):
+Test navigation in SQL (WGS84, real park bbox: lon 113.885–113.890, lat 22.530–22.543):
 
 ```bash
 docker compose exec db psql -U postgres -d park_routing -c \
-  "SELECT distance_m, duration_sec, jsonb_array_length(path_polyline), jsonb_array_length(navigation_steps) FROM navigate_between_points(116.388, 39.988, 116.392, 39.990, 'walk', 'wgs84');"
+  "SELECT distance_m, duration_sec, jsonb_array_length(path_polyline), jsonb_array_length(navigation_steps) FROM navigate_between_points(113.887401, 22.535316, 113.886131, 22.534781, 'walk', 'wgs84');"
 ```
 
 Test routing in SQL (WGS84):
 
 ```bash
 docker compose exec db psql -U postgres -d park_routing -c \
-  "SELECT distance_m, duration_min FROM route_between_points(116.388, 39.988, 116.392, 39.992, 'walk', 'wgs84');"
+  "SELECT distance_m, duration_min FROM route_between_points(113.887401, 22.535316, 113.886131, 22.534781, 'walk', 'wgs84');"
 ```
 
 Test GCJ-02 conversion:
@@ -82,14 +97,14 @@ Health check:
 curl http://localhost:8080/health
 ```
 
-Route API (synthetic park bbox: lon 116.388–116.392, lat 39.988–39.992):
+Route API (real park bbox: lon 113.885–113.890, lat 22.530–22.543):
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/route \
   -H 'Content-Type: application/json' \
   -d '{
-    "start": { "lon": 116.388, "lat": 39.988 },
-    "end":   { "lon": 116.392, "lat": 39.992 },
+    "start": { "lon": 113.887401, "lat": 22.535316 },
+    "end":   { "lon": 113.886131, "lat": 22.534781 },
     "travel_mode": "walk",
     "crs": "wgs84"
   }' | jq .
@@ -103,8 +118,8 @@ Navigate API (turn-by-turn steps + dense polyline):
 curl -s -X POST http://localhost:8080/api/v1/navigate \
   -H 'Content-Type: application/json' \
   -d '{
-    "start": { "lon": 116.388, "lat": 39.988 },
-    "end":   { "lon": 116.392, "lat": 39.990 },
+    "start": { "lon": 113.887401, "lat": 22.535316 },
+    "end":   { "lon": 113.886131, "lat": 22.534781 },
     "travel_mode": "walk",
     "crs": "wgs84"
   }' | jq .
@@ -120,8 +135,8 @@ Repeat the same request — `"cached": true` on the second call.
 
 ```json
 {
-  "start": { "lon": 116.388, "lat": 39.988 },
-  "end": { "lon": 116.392, "lat": 39.992 },
+  "start": { "lon": 113.887401, "lat": 22.535316 },
+  "end": { "lon": 113.886131, "lat": 22.534781 },
   "travel_mode": "walk",
   "crs": "gcj02"
 }
@@ -210,7 +225,9 @@ Park paths are modeled as an **undirected graph**: each edge has a single `cost`
 
 ```
 ├── docker-compose.yml
+├── data/              # Source GeoJSON (park-routes.geojson)
 ├── db/init/           # PostgreSQL schema + seed (01–07, lexicographic order)
+├── scripts/           # Seed generator, network reload, smoke tests
 ├── backend/           # Rust Axum API
 └── PRDs/prd.md        # Product requirements
 ```

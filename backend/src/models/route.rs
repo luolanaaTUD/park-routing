@@ -11,10 +11,10 @@ pub struct Coordinate {
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
-    "start": { "lon": 116.388, "lat": 39.988 },
-    "end": { "lon": 116.392, "lat": 39.992 },
+    "start": { "lon": 113.887401, "lat": 22.535316 },
+    "end": { "lon": 113.886131, "lat": 22.534781 },
     "travel_mode": "walk",
-    "crs": "gcj02"
+    "crs": "wgs84"
 }))]
 pub struct RouteRequest {
     pub start: Coordinate,
@@ -33,12 +33,12 @@ fn default_travel_mode() -> String {
 pub struct RouteResponse {
     #[schema(
         value_type = Object,
-        example = json!({"type":"LineString","coordinates":[[116.388,39.988],[116.39,39.99],[116.392,39.992]]})
+        example = json!({"type":"LineString","coordinates":[[113.887401,22.535316],[113.886131,22.534781]]})
     )]
     pub geometry: Value,
-    #[schema(example = 280.16)]
+    #[schema(example = 192.1)]
     pub distance_m: f64,
-    #[schema(example = 3.3)]
+    #[schema(example = 2.3)]
     pub duration_min: f64,
     pub cached: bool,
 }
@@ -72,25 +72,25 @@ pub struct NavigationStep {
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 #[schema(example = json!({
-    "distance_m": 350.0,
-    "duration_sec": 300,
+    "distance_m": 227.9,
+    "duration_sec": 163,
     "path_polyline": [
-        { "lat": 39.988, "lon": 116.388 },
-        { "lat": 39.992, "lon": 116.392 }
+        { "lat": 22.535316, "lon": 113.887401 },
+        { "lat": 22.534781, "lon": 113.886131 }
     ],
     "navigation_steps": [
         {
             "step_index": 0,
-            "lat": 39.988,
-            "lon": 116.388,
+            "lat": 22.535316,
+            "lon": 113.887401,
             "action_type": "START",
-            "guide_text": "沿当前道路直行",
-            "distance_to_next_m": 350
+            "guide_text": "沿Route 329直行",
+            "distance_to_next_m": 26
         },
         {
             "step_index": 1,
-            "lat": 39.992,
-            "lon": 116.392,
+            "lat": 22.534781,
+            "lon": 113.886131,
             "action_type": "DESTINATION",
             "guide_text": "到达目的地",
             "distance_to_next_m": 0
