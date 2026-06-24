@@ -22,9 +22,10 @@ pass() {
 echo "=== Park routing smoke tests (real park data) ==="
 
 echo "--- Database checks ---"
+EXPECTED_WAYS="$(python3 -c "import json; print(len(json.load(open('data/park-road.json'))['features']))")"
 WAY_COUNT="$(docker compose exec -T db psql -U postgres -d park_routing -tAc "SELECT COUNT(*) FROM park_ways;")"
-[[ "$WAY_COUNT" == "348" ]] || fail "expected 348 park_ways rows, got $WAY_COUNT"
-pass "park_ways count is 348"
+[[ "$WAY_COUNT" == "$EXPECTED_WAYS" ]] || fail "expected $EXPECTED_WAYS park_ways rows, got $WAY_COUNT"
+pass "park_ways count is $EXPECTED_WAYS"
 
 MISSING_TOPOLOGY="$(docker compose exec -T db psql -U postgres -d park_routing -tAc \
   "SELECT COUNT(*) FROM park_ways WHERE source IS NULL OR target IS NULL;")"

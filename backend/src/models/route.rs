@@ -36,9 +36,9 @@ pub struct RouteResponse {
         example = json!({"type":"LineString","coordinates":[[113.887401,22.535316],[113.886131,22.534781]]})
     )]
     pub geometry: Value,
-    #[schema(example = 192.1)]
+    #[schema(example = 254.8)]
     pub distance_m: f64,
-    #[schema(example = 2.3)]
+    #[schema(example = 3.0)]
     pub duration_min: f64,
     pub cached: bool,
 }
@@ -72,8 +72,8 @@ pub struct NavigationStep {
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 #[schema(example = json!({
-    "distance_m": 227.9,
-    "duration_sec": 163,
+    "distance_m": 254.8,
+    "duration_sec": 182,
     "path_polyline": [
         { "lat": 22.535316, "lon": 113.887401 },
         { "lat": 22.534781, "lon": 113.886131 }
@@ -84,7 +84,7 @@ pub struct NavigationStep {
             "lat": 22.535316,
             "lon": 113.887401,
             "action_type": "START",
-            "guide_text": "沿Route 329直行",
+            "guide_text": "从当前位置出发",
             "distance_to_next_m": 26
         },
         {

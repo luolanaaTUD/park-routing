@@ -17,14 +17,14 @@ Client → Axum API → Redis (cache hit)
 docker compose up -d db redis
 ```
 
-On first run, `db/init/*.sql` (run in order `01`–`07`) creates extensions, schema, park network seed (348 routes from `data/park-routes.geojson`), topology, GCJ-02 conversion functions, `route_between_points()`, and `navigate_between_points()`. This folder is the schema source of truth for new environments.
+On first run, `db/init/*.sql` (run in order `01`–`07`) creates extensions, schema, park network seed (346 roads from `data/park-road.json`), topology, GCJ-02 conversion functions, `route_between_points()`, and `navigate_between_points()`. This folder is the schema source of truth for new environments.
 
 **Existing database volumes** do not re-run init scripts. After pulling network or schema changes, reset with `docker compose down -v && docker compose up -d db redis`, reload the network with `./scripts/reload_park_network.sh`, or apply individual SQL files manually.
 
-To regenerate the seed after editing `data/park-routes.geojson`:
+To regenerate the seed after editing `data/park-road.json`:
 
 ```bash
-python3 scripts/generate_park_routes_seed.py
+python3 scripts/generate_park_road_seed.py
 ./scripts/reload_park_network.sh   # if the database already exists
 ```
 
@@ -177,7 +177,7 @@ End-user AR navigation: same request body as `/api/v1/route`, but returns a dens
       "lat": 39.988,
       "lon": 116.388,
       "action_type": "START",
-      "guide_text": "沿S-C West直行",
+      "guide_text": "从当前位置出发",
       "distance_to_next_m": 222
     },
     {
@@ -185,7 +185,7 @@ End-user AR navigation: same request body as `/api/v1/route`, but returns a dens
       "lat": 39.99,
       "lon": 116.388,
       "action_type": "RIGHT",
-      "guide_text": "在Central Avenue右转",
+      "guide_text": "在此处右转",
       "distance_to_next_m": 342
     },
     {
@@ -225,7 +225,7 @@ Park paths are modeled as an **undirected graph**: each edge has a single `cost`
 
 ```
 ├── docker-compose.yml
-├── data/              # Source GeoJSON (park-routes.geojson)
+├── data/              # Source GeoJSON (park-road.json)
 ├── db/init/           # PostgreSQL schema + seed (01–07, lexicographic order)
 ├── scripts/           # Seed generator, network reload, smoke tests
 ├── backend/           # Rust Axum API

@@ -19,26 +19,10 @@ LANGUAGE sql
 IMMUTABLE
 AS $$
     SELECT CASE action_type
-        WHEN 'START' THEN
-            CASE WHEN road_name IS NOT NULL AND road_name <> ''
-                THEN '沿' || road_name || '直行'
-                ELSE '沿当前道路直行'
-            END
-        WHEN 'STRAIGHT' THEN
-            CASE WHEN road_name IS NOT NULL AND road_name <> ''
-                THEN '继续沿' || road_name || '直行'
-                ELSE '继续直行'
-            END
-        WHEN 'LEFT' THEN
-            CASE WHEN road_name IS NOT NULL AND road_name <> ''
-                THEN '在' || road_name || '左转'
-                ELSE '在此处左转'
-            END
-        WHEN 'RIGHT' THEN
-            CASE WHEN road_name IS NOT NULL AND road_name <> ''
-                THEN '在' || road_name || '右转'
-                ELSE '在此处右转'
-            END
+        WHEN 'START' THEN '从当前位置出发'
+        WHEN 'STRAIGHT' THEN '继续直行'
+        WHEN 'LEFT' THEN '在此处左转'
+        WHEN 'RIGHT' THEN '在此处右转'
         WHEN 'DESTINATION' THEN '到达目的地'
         ELSE '继续直行'
     END;
@@ -64,7 +48,6 @@ AS $$
 DECLARE
     edges_sql TEXT;
     speed_mps DOUBLE PRECISION;
-    max_snap_m DOUBLE PRECISION := 50.0;
     wgs_start_lon DOUBLE PRECISION;
     wgs_start_lat DOUBLE PRECISION;
     wgs_end_lon DOUBLE PRECISION;
@@ -72,13 +55,11 @@ DECLARE
     converted RECORD;
     start_pt GEOMETRY;
     end_pt GEOMETRY;
-    start_dist DOUBLE PRECISION;
-    end_dist DOUBLE PRECISION;
-    start_vid BIGINT;
-    end_vid BIGINT;
-    route_cost DOUBLE PRECISION;
-    route_geom GEOMETRY;
+    route RECORD;
     output_geom GEOMETRY;
+    start_access_m DOUBLE PRECISION;
+    end_access_m DOUBLE PRECISION;
+    first_road_name TEXT;
     nav_result RECORD;
 BEGIN
     IF mode NOT IN ('walk', 'cart') THEN
@@ -109,24 +90,6 @@ BEGIN
     start_pt := ST_SetSRID(ST_MakePoint(wgs_start_lon, wgs_start_lat), 4326);
     end_pt := ST_SetSRID(ST_MakePoint(wgs_end_lon, wgs_end_lat), 4326);
 
-    SELECT MIN(ST_Distance(w.the_geom::geography, start_pt::geography))
-    INTO start_dist
-    FROM park_ways w;
-
-    SELECT MIN(ST_Distance(w.the_geom::geography, end_pt::geography))
-    INTO end_dist
-    FROM park_ways w;
-
-    IF start_dist > max_snap_m THEN
-        RAISE EXCEPTION 'Start point is %.0f m from nearest path (max %.0f m)', start_dist, max_snap_m
-            USING ERRCODE = '22023';
-    END IF;
-
-    IF end_dist > max_snap_m THEN
-        RAISE EXCEPTION 'End point is %.0f m from nearest path (max %.0f m)', end_dist, max_snap_m
-            USING ERRCODE = '22023';
-    END IF;
-
     IF mode = 'walk' THEN
         edges_sql := 'SELECT id, source, target, cost FROM park_ways ORDER BY id';
         speed_mps := 1.4;
@@ -135,54 +98,29 @@ BEGIN
         speed_mps := 3.0;
     END IF;
 
-    SELECT v.id
-    INTO start_vid
-    FROM park_ways_vertices_pgr v
-    ORDER BY v.geom <-> start_pt
-    LIMIT 1;
-
-    SELECT v.id
-    INTO end_vid
-    FROM park_ways_vertices_pgr v
-    ORDER BY v.geom <-> end_pt
-    LIMIT 1;
-
-    WITH route AS (
-        SELECT r.seq, r.edge, r.agg_cost, r.cost
-        FROM pgr_dijkstra(
-            edges_sql,
-            start_vid,
-            end_vid,
-            directed => FALSE
-        ) AS r
-        WHERE r.edge > 0
-    ),
-    aggregated AS (
-        SELECT
-            ST_LineMerge(ST_Collect(w.the_geom ORDER BY r.seq)) AS geom,
-            SUM(w.cost) AS total_cost
-        FROM route r
-        JOIN park_ways w ON w.id = r.edge
-    )
-    SELECT a.geom, a.total_cost
-    INTO route_geom, route_cost
-    FROM aggregated a;
-
-    IF route_geom IS NULL OR route_cost IS NULL THEN
-        RAISE EXCEPTION 'No route found between the given points'
-            USING ERRCODE = 'P0002';
-    END IF;
+    SELECT *
+    INTO route
+    FROM _park_compute_complete_route_wgs84(start_pt, end_pt, edges_sql);
 
     IF crs = 'gcj02' THEN
-        output_geom := geom_wgs84_to_gcj02(route_geom);
+        output_geom := geom_wgs84_to_gcj02(route.route_geom);
     ELSE
-        output_geom := route_geom;
+        output_geom := route.route_geom;
     END IF;
+
+    start_access_m := ST_Distance(start_pt::geography, route.start_snap::geography);
+    end_access_m := ST_Distance(route.end_snap::geography, end_pt::geography);
+
+    SELECT w.name
+    INTO first_road_name
+    FROM park_ways w
+    ORDER BY w.the_geom <-> route.start_snap
+    LIMIT 1;
 
     SELECT *
     INTO nav_result
     FROM (
-        WITH route AS (
+        WITH route_edges AS (
             SELECT r.seq, r.edge, r.node AS from_vid, r.agg_cost,
                    CASE
                        WHEN r.node = w.source THEN w.target
@@ -190,8 +128,8 @@ BEGIN
                    END AS to_vid
             FROM pgr_dijkstra(
                 edges_sql,
-                start_vid,
-                end_vid,
+                route.start_vid,
+                route.end_vid,
                 directed => FALSE
             ) AS r
             JOIN park_ways w ON w.id = r.edge
@@ -207,11 +145,36 @@ BEGIN
                 w.name AS road_name,
                 vf.geom AS from_geom,
                 vt.geom AS to_geom,
-                degrees(ST_Azimuth(vf.geom, vt.geom)) AS bearing_deg
-            FROM route r
+                oriented_geom.edge_geom,
+                degrees(ST_Azimuth(
+                    ST_LineInterpolatePoint(
+                        oriented_geom.edge_geom,
+                        GREATEST(
+                            0::DOUBLE PRECISION,
+                            1.0 - 5.0 / NULLIF(ST_Length(oriented_geom.edge_geom::geography), 0)
+                        )
+                    ),
+                    ST_EndPoint(oriented_geom.edge_geom)
+                )) AS arrive_bearing_deg,
+                degrees(ST_Azimuth(
+                    ST_StartPoint(oriented_geom.edge_geom),
+                    ST_LineInterpolatePoint(
+                        oriented_geom.edge_geom,
+                        LEAST(
+                            1::DOUBLE PRECISION,
+                            5.0 / NULLIF(ST_Length(oriented_geom.edge_geom::geography), 0)
+                        )
+                    )
+                )) AS depart_bearing_deg
+            FROM route_edges r
             JOIN park_ways w ON w.id = r.edge
             JOIN park_ways_vertices_pgr vf ON vf.id = r.from_vid
             JOIN park_ways_vertices_pgr vt ON vt.id = r.to_vid
+            CROSS JOIN LATERAL (
+                SELECT _park_orient_edge_geom(
+                    w.the_geom, r.from_vid, r.to_vid, w.source, w.target, vf.geom, vt.geom
+                ) AS edge_geom
+            ) AS oriented_geom
         ),
         turns AS (
             SELECT
@@ -220,7 +183,7 @@ BEGIN
                 o2.from_geom AS junction_geom,
                 o2.agg_cost AS cost_at_junction,
                 navigate_turn_action(
-                    ((o2.bearing_deg - o1.bearing_deg + 540)::numeric % 360)::double precision - 180
+                    ((o2.depart_bearing_deg - o1.arrive_bearing_deg + 540)::numeric % 360)::double precision - 180
                 ) AS action_type,
                 o2.road_name
             FROM oriented o1
@@ -229,45 +192,40 @@ BEGIN
         ),
         turn_steps AS (
             SELECT
-                t.after_seq,
-                t.cost_at_junction,
-                t.action_type,
+                ts.after_seq,
+                ts.cost_at_junction,
+                ts.action_type,
                 CASE
-                    WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(t.junction_geom)
-                    ELSE t.junction_geom
+                    WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(ts.junction_geom)
+                    ELSE ts.junction_geom
                 END AS step_geom,
-                t.road_name
-            FROM turns t
-            WHERE t.action_type IS NOT NULL
+                ts.road_name
+            FROM turns ts
+            WHERE ts.action_type IS NOT NULL
         ),
-        first_edge AS (
-            SELECT o.edge, o.road_name, w.the_geom
-            FROM oriented o
-            JOIN park_ways w ON w.id = o.edge
-            ORDER BY o.seq
-            LIMIT 1
-        ),
-        last_edge AS (
-            SELECT o.edge, w.the_geom
-            FROM oriented o
-            JOIN park_ways w ON w.id = o.edge
-            ORDER BY o.seq DESC
-            LIMIT 1
-        ),
-        start_snap AS (
+        start_step AS (
             SELECT CASE
-                WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(ST_ClosestPoint(fe.the_geom, start_pt))
-                ELSE ST_ClosestPoint(fe.the_geom, start_pt)
-            END AS geom,
-            fe.road_name
-            FROM first_edge fe
-        ),
-        end_snap AS (
-            SELECT CASE
-                WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(ST_ClosestPoint(le.the_geom, end_pt))
-                ELSE ST_ClosestPoint(le.the_geom, end_pt)
+                WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(start_pt)
+                ELSE start_pt
             END AS geom
-            FROM last_edge le
+        ),
+        start_snap_step AS (
+            SELECT CASE
+                WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(route.start_snap)
+                ELSE route.start_snap
+            END AS geom
+        ),
+        end_snap_step AS (
+            SELECT CASE
+                WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(route.end_snap)
+                ELSE route.end_snap
+            END AS geom
+        ),
+        end_step AS (
+            SELECT CASE
+                WHEN crs = 'gcj02' THEN geom_wgs84_to_gcj02(end_pt)
+                ELSE end_pt
+            END AS geom
         ),
         raw_steps AS (
             SELECT
@@ -276,13 +234,25 @@ BEGIN
                 0::DOUBLE PRECISION AS cost_at_step,
                 'START'::TEXT AS action_type,
                 s.geom AS step_geom,
-                s.road_name
-            FROM start_snap s
+                NULL::TEXT AS road_name
+            FROM start_step s
 
             UNION ALL
 
             SELECT
-                ts.after_seq AS ord,
+                1 AS ord,
+                0::BIGINT AS route_seq,
+                start_access_m AS cost_at_step,
+                'STRAIGHT'::TEXT AS action_type,
+                ss.geom AS step_geom,
+                first_road_name AS road_name
+            FROM start_snap_step ss
+            WHERE start_access_m > 1.0
+
+            UNION ALL
+
+            SELECT
+                ts.after_seq + 10 AS ord,
                 ts.after_seq AS route_seq,
                 ts.cost_at_junction AS cost_at_step,
                 ts.action_type,
@@ -295,11 +265,23 @@ BEGIN
             SELECT
                 1000000 AS ord,
                 1000000::BIGINT AS route_seq,
-                route_cost AS cost_at_step,
+                route.distance_m - end_access_m AS cost_at_step,
+                'STRAIGHT'::TEXT AS action_type,
+                es.geom AS step_geom,
+                NULL::TEXT AS road_name
+            FROM end_snap_step es
+            WHERE end_access_m > 1.0
+
+            UNION ALL
+
+            SELECT
+                1000001 AS ord,
+                1000001::BIGINT AS route_seq,
+                route.distance_m AS cost_at_step,
                 'DESTINATION'::TEXT AS action_type,
                 e.geom AS step_geom,
                 NULL::TEXT AS road_name
-            FROM end_snap e
+            FROM end_step e
         ),
         ordered_steps AS (
             SELECT
@@ -356,8 +338,8 @@ BEGIN
             ) AS pt
         )
         SELECT
-            route_cost AS distance_m,
-            GREATEST(1, ROUND(route_cost / speed_mps)::INTEGER) AS duration_sec,
+            route.distance_m AS distance_m,
+            GREATEST(1, ROUND(route.distance_m / speed_mps)::INTEGER) AS duration_sec,
             pj.polyline AS path_polyline,
             sj.steps AS navigation_steps
         FROM polyline_json pj, steps_json sj

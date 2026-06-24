@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "Truncating park_ways and rebuilding topology from real park routes seed..."
+echo "Truncating park_ways and rebuilding topology from park road seed..."
 
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d park_routing <<'SQL'
 TRUNCATE park_ways RESTART IDENTITY;
@@ -13,7 +13,7 @@ ALTER TABLE park_ways ALTER COLUMN target DROP NOT NULL;
 SQL
 
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d park_routing \
-  -f /docker-entrypoint-initdb.d/03-park-routes-seed.sql
+  -f /docker-entrypoint-initdb.d/03-park-road-seed.sql
 
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d park_routing \
   -f /docker-entrypoint-initdb.d/04-topology.sql
