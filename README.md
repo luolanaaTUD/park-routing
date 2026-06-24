@@ -53,6 +53,14 @@ OpenAPI JSON: [http://localhost:8080/api-docs/openapi.json](http://localhost:808
 docker compose up -d --build
 ```
 
+After pulling code changes, rebuild the API image (`--build`). Without it, Docker reuses the previous `park-routing-api` image and Swagger examples / response behavior can lag behind `cargo run`.
+
+If routing SQL or navigation logic changed but responses still look stale, flush Redis:
+
+```bash
+docker compose exec redis redis-cli FLUSHALL
+```
+
 ## Smoke tests
 
 Run the full suite (database + SQL routing + HTTP API):

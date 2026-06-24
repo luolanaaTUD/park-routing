@@ -76,6 +76,7 @@ pub struct NavigationStep {
     "duration_sec": 182,
     "path_polyline": [
         { "lat": 22.535316, "lon": 113.887401 },
+        { "lat": 22.535109, "lon": 113.887164 },
         { "lat": 22.534781, "lon": 113.886131 }
     ],
     "navigation_steps": [
@@ -85,10 +86,26 @@ pub struct NavigationStep {
             "lon": 113.887401,
             "action_type": "START",
             "guide_text": "从当前位置出发",
-            "distance_to_next_m": 26
+            "distance_to_next_m": 13
         },
         {
             "step_index": 1,
+            "lat": 22.535109,
+            "lon": 113.887164,
+            "action_type": "LEFT",
+            "guide_text": "在此处左转",
+            "distance_to_next_m": 78
+        },
+        {
+            "step_index": 2,
+            "lat": 22.534661,
+            "lon": 113.886744,
+            "action_type": "RIGHT",
+            "guide_text": "在此处右转",
+            "distance_to_next_m": 164
+        },
+        {
+            "step_index": 3,
             "lat": 22.534781,
             "lon": 113.886131,
             "action_type": "DESTINATION",
